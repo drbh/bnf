@@ -15,6 +15,13 @@ pub fn parse<'gram>(
     ParseTreeIter::new(grammar, input)
 }
 
+pub fn try_parse<'gram>(grammar: &'gram crate::Grammar, input: &'gram str) -> (bool, bool) {
+    let mut pt = ParseTreeIter::new(grammar, input);
+    let (traversal_id, used_all_input) = pt.parsability();
+    let is_complete = traversal_id.is_some();
+    (is_complete, used_all_input)
+}
+
 /// A queue of [`TraversalId`] for processing, with repetitions ignored.
 #[derive(Debug, Default)]
 struct TraversalQueue {
@@ -76,8 +83,9 @@ fn earley<'gram>(
     traversal_tree: &mut TraversalTree<'gram>,
     completions: &mut CompletionMap<'gram>,
     grammar: &ParseGrammar<'gram>,
-) -> Option<TraversalId> {
+) -> (Option<TraversalId>, bool) {
     let _span = tracing::span!(tracing::Level::DEBUG, "earley").entered();
+    let mut includes_all_input = false;
     while let Some(traversal_id) = queue.pop_front() {
         tracing::event!(
             tracing::Level::TRACE,
@@ -136,18 +144,24 @@ fn earley<'gram>(
                     let term_match = TermMatch::Nonterminal(traversal_id);
                     let completed = traversal_tree.match_term(incomplete_traversal_id, term_match);
 
+                    let range_len = completed.input_range.offset.total_len();
+                    let input_len = completed.input_range.input.len();
+                    if range_len == input_len {
+                        includes_all_input = true;
+                    }
+
                     tracing::event!(tracing::Level::TRACE, "completed: {completed:#?}");
                     queue.push_back(completed.id);
                 }
 
                 if is_full_traversal {
-                    return Some(traversal_id);
+                    return (Some(traversal_id), includes_all_input);
                 }
             }
         }
     }
 
-    None
+    (None, includes_all_input)
 }
 
 #[derive(Debug)]
@@ -180,6 +194,19 @@ impl<'gram> ParseTreeIter<'gram> {
             completions,
         }
     }
+
+    /// Iterate until a parse tree is found, or the input is exhausted. Returns the traversal id 
+    /// of the first parse tree, and whether the input was exhausted.
+    pub fn parsability(&mut self) -> (Option<TraversalId>, bool) {
+        let Self {
+            queue,
+            completions,
+            grammar,
+            traversal_tree,
+        } = self;
+        let (traversal_id, used_all_input) = earley(queue, traversal_tree, completions, grammar);
+        (traversal_id, used_all_input)
+    }
 }
 
 impl<'gram> Iterator for ParseTreeIter<'gram> {
@@ -191,11 +218,12 @@ impl<'gram> Iterator for ParseTreeIter<'gram> {
             grammar,
             traversal_tree,
         } = self;
-
-        earley(queue, traversal_tree, completions, grammar).map(|traversal_id| {
+        let (traversal_id, used_all_input) = earley(queue, traversal_tree, completions, grammar);
+        traversal_id.map(|traversal_id| {
             let _span = tracing::span!(tracing::Level::DEBUG, "next_parse_tree").entered();
-            let parse_tree = parse_tree(traversal_tree, grammar, traversal_id);
+            let mut parse_tree = parse_tree(traversal_tree, grammar, traversal_id);
             tracing::event!(tracing::Level::TRACE, "\n{parse_tree}");
+            parse_tree.used_all_input = used_all_input;
             parse_tree
         })
     }

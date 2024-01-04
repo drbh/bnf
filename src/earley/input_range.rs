@@ -13,7 +13,7 @@ impl InputRangeOffset {
 /// A sliding window over the input strings being parsed.
 #[derive(Clone)]
 pub(crate) struct InputRange<'gram> {
-    input: &'gram str,
+    pub input: &'gram str,
     pub offset: InputRangeOffset,
 }
 

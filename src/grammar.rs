@@ -22,11 +22,16 @@ pub struct ParseTree<'gram> {
     /// the "left hand side" `Term` used for this `ParseTree`
     pub lhs: &'gram Term,
     rhs: Vec<ParseTreeNode<'gram>>,
+    pub used_all_input: bool,
 }
 
 impl<'gram> ParseTree<'gram> {
     pub(crate) fn new(lhs: &'gram Term, rhs: Vec<ParseTreeNode<'gram>>) -> Self {
-        Self { lhs, rhs }
+        Self {
+            lhs,
+            rhs,
+            used_all_input: false,
+        }
     }
 }
 
@@ -255,6 +260,14 @@ impl Grammar {
     /// Parse input strings according to `Grammar`
     pub fn parse_input<'gram>(&'gram self, input: &'gram str) -> impl Iterator<Item = ParseTree> {
         crate::earley::parse(self, input)
+    }
+
+    /// Tries to parse input strings according to `Grammar` and returns if all input was processed
+    pub fn try_parse_input<'gram>(
+        &'gram self,
+        input: &'gram str,
+    ) -> (bool, bool) {
+        crate::earley::try_parse(self, input)
     }
 
     /// Get the starting term
